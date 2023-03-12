@@ -79,44 +79,6 @@
 #pragma config EBTRB = OFF    // Boot Block Table Read Protection bit->Boot Block (000000-0007FFh) 
                               // not protected from table reads executed in other blocks
 
-
-//Constants
-enum states
-{
-    INIT,
-    WAIT,
-    TIMING,
-    RIGHT_TO_LEFT, 
-    LEFT_TO_RIGHT,
-    SCORE,
-    WIN
-};
-
-#define LEFT           1
-#define RIGHT          2
-#define TRUE           1
-#define FALSE          0
-#define DEBOUNCE_DELAY 10
-#define BASE_SPEED     300
-#define MIN_SPEED      50
-#define MAX_SPEED      100
-
-unsigned int get_left_button (void);
-unsigned int get_right_button(void);
-void set_ball                (unsigned char position);
-void shift_ball              (unsigned int dir, unsigned int *scorer);
-void set_rand_speed          (unsigned int *speed);
-void signal_foul             (void);
-void signal_score            (unsigned int player);
-void configure_interrupts    (void);
-void configure_pins          (void);
-void clear_court             (void);
-
-volatile unsigned int timer_tick = 0;
-unsigned char ball               = 0x00;
-unsigned int last_button         = 1;
-unsigned int cur_state           = INIT;
-
 /*
  PINS:
  RD0-RD7    Court LEDs
@@ -128,6 +90,43 @@ unsigned int cur_state           = INIT;
  RE0        Analog seeder    (holding off for now)
  */
 
+//Program States
+enum states
+{
+    INIT,           //Resets variables for new game.
+    WAIT,           //Waits for player to serve the ball.
+    TIMING,         //Delay between ball movements.
+    RIGHT_TO_LEFT,  //Shifts the ball to the left. 
+    LEFT_TO_RIGHT,  //Shifts the ball to the right.
+    SCORE           //Signals and records scores and fouls.
+};
+
+//Constants
+#define LEFT           1    //Identifier for the left player.
+#define RIGHT          2    //Identifier for the right player.
+#define DEBOUNCE_DELAY 10   //Delay to prevent button bounce errors.
+#define BASE_SPEED     300  //Base speed of the ball movements.
+#define MIN_SPEED      50   //Minimum possible speed variation.
+#define MAX_SPEED      100  //Maximum possible speed variation.
+
+//Function Prototypes
+unsigned int get_left_button (void);                    //Return the state of the left button.
+unsigned int get_right_button(void);                    //Return the state of the right button.
+unsigned int shift_ball      (unsigned int dir);        //Shift the ball once in a direction.
+unsigned int set_rand_speed  (void);                    //Set a random ball speed.
+void set_ball                (unsigned char position);  //Set the ball at a position on the court.
+void signal_foul             (void);                    //Flash the foul LED.
+void signal_score            (unsigned int player);     //Flash the appropriate score LED.
+void configure_interrupts    (void);                    //Configure timer interrupts.            
+void configure_pins          (void);                    //Configure pin directions and initial outputs.
+void clear_court             (void);                    //Turn off all court LEDs.
+
+//Global Variables
+volatile unsigned int timer_tick = 0;       //Increment every 1ms based upon Timer0.
+unsigned char ball               = 0x00;    //Current position of the ball.
+unsigned int  cur_state          = INIT;    //Current state of the program.
+
+//Main Function
 void main()
 {
     unsigned int direction;
@@ -135,208 +134,147 @@ void main()
     unsigned int right_score = 0;
     unsigned int scorer      = 0;
     unsigned int speed       = BASE_SPEED;
+    
     configure_pins();
     configure_interrupts();
 
-    
+    //Infinite while loop acts as operating system.
     while(1)
     {
+        //Select the current state of program execution.
         switch(cur_state)
         {
+            //State to reset game and configure variables.
             case INIT:
                 //srand(time(0));
-                left_score  = 0;
-                right_score = 0;
-                cur_state   = WAIT;
+                left_score  = 0;        //Reset left's score.
+                right_score = 0;        //Reset right's score.
+                cur_state   = WAIT;     //Change state to WAIT to wait on serve.
                 break;
             
+            //State to wait for player to serve the ball.
             case WAIT:
-                set_rand_speed(&speed);
-                if(get_left_button())
+                speed = set_rand_speed();   //Set the ball's speed.
+                if(get_left_button())       //Check if the left button was pressed.
                 {
-                    set_ball(0x80);
-                    direction = RIGHT;
-                    cur_state = TIMING;
+                    set_ball(0x80);         //Start ball on left-most edge.
+                    direction = RIGHT;      //Set ball to move to the right.
+                    cur_state = TIMING;     //Change to TIMING state to wait for next ball movement.
                 }
-                if(get_right_button())
+                if(get_right_button())      //Check if the right button was pressed.
                 {
-                    set_ball(0x01);
-                    direction = LEFT;
-                    cur_state = TIMING;
+                    set_ball(0x01);         //Start ball on right-most edge.
+                    direction = LEFT;       //Set ball to move to the left.
+                    cur_state = TIMING;     //Change to TIMING state to wait for next ball movement.
                 }
-                timer_tick = 0;
+                timer_tick = 0;             //Reset the timer.
                 break;
             
+            //State for waiting between ball movements.
             case TIMING:
-                if(timer_tick == speed)
+                if(timer_tick == speed)                 //Shift ball after specified delay.
                 {
                     if(direction == LEFT)
-                        cur_state = RIGHT_TO_LEFT;
+                        cur_state = RIGHT_TO_LEFT;      //Change state to RIGHT_TO_LEFT if moving left.
                     if(direction == RIGHT)
-                        cur_state = LEFT_TO_RIGHT;
+                        cur_state = LEFT_TO_RIGHT;      //Change state to LEFT_TO_RIGHT if moving right.
                 }
-                
-                if(get_left_button())
+                else                                    //Check for button presses.
                 {
-                    if(ball != 0x80)
+                    if(get_left_button())               //Check for left button press.
                     {
-                        cur_state = SCORE;
-                        scorer = RIGHT;
+                        if(ball != 0x80)                //Check if ball is not on the left-most edge.
+                        {
+                            scorer    = RIGHT;          //Right gets point since left swung at invalid ball. 
+                            cur_state = SCORE;          //Change state to SCORE.
+                        }
+                        else                            //Ball is on the left-most edge.
+                        {
+                            direction = RIGHT;          //Ball now moves right after successful hit.
+                            speed = set_rand_speed();   //Change the speed of the ball.
+                            
+                        }
                     }
-                    else
+                    else if(get_right_button())         //Check for right button press.
                     {
-                        set_rand_speed(&speed);
-                        direction = RIGHT;
-                    }
-                }
-                else if(get_right_button())
-                {
-                    if(ball != 0x01)
-                    {
-                        scorer = LEFT;
-                        cur_state = SCORE;
-                    }
-                    else
-                    {
-                        set_rand_speed(&speed);
-                        direction = LEFT;
+                        if(ball != 0x01)                //Check if ball is not on the right-most edge.
+                        {
+                            scorer    = LEFT;           //Left gets point since right swung at invalid ball.
+                            cur_state = SCORE;          //Change state to SCORE.
+                        }
+                        else                            //Ball is on the right-most edge.
+                        {
+                            direction = LEFT;           //Ball now moves left after successful hit.
+                            speed = set_rand_speed();   //Change the speed of the ball.
+                        }
                     }
                 }
                 break;
             
+            //State to move ball right-to-left.
             case RIGHT_TO_LEFT:
-                timer_tick = 0;
-                shift_ball(LEFT, &scorer);
-                if(scorer)
-                    cur_state = SCORE;
+                timer_tick = 0;             //Reset the timer.
+                scorer = shift_ball(LEFT);  //Shift ball left, return scorer if out-of-bounds.
+                if(scorer)                  
+                    cur_state = SCORE;      //Change state to SCORE if a player scored.
                 else
-                    cur_state = TIMING;
+                    cur_state = TIMING;     //Change state to TIMING to wait for next ball movement.
                 break;
             
+            //State to move ball left-to-right.
             case LEFT_TO_RIGHT:
-                timer_tick = 0;
-                shift_ball(RIGHT, &scorer);
-                if(scorer)
-                    cur_state = SCORE;
+                timer_tick = 0;             //Reset the timer.
+                scorer = shift_ball(RIGHT); //Shift ball right, return scorer if out-of-bounds.
+                if(scorer)          
+                    cur_state = SCORE;      //Change state to SCORE if player scored.
                 else
-                    cur_state = TIMING;
+                    cur_state = TIMING;     //Change state to TIMING to wait for next ball movement.
                 break;
             
+            //State to signal scores and fouls
             case SCORE:
-                signal_foul();
-                if(scorer == RIGHT)
+                signal_foul();              //Flash foul LED.
+                if(scorer == RIGHT)         //Check if right was the scorer.
                 {
-                    right_score++;
-                    signal_score(RIGHT);
-                    cur_state = WAIT;
+                    right_score++;          //Increment right's score by 1.
+                    signal_score(RIGHT);    //Flash right's score LED.
                 }
-                else if(scorer == LEFT)
+                else if(scorer == LEFT)     //Check if left was the scorer.
                 {
-                    left_score++;
-                    signal_score(LEFT);
-                    cur_state = WAIT;
+                    left_score++;           //Increment left's score by 1.
+                    signal_score(LEFT);     //Flash left's score LED.   
                 }
-                scorer = 0;
-                clear_court();
-                break;
-            
-            //WIN case is only for an optional bonus.
-            case WIN:
+                scorer = 0;                 //Reset scorer to none.
+                clear_court();              //Turn off all court LEDs.
+                cur_state = WAIT;           //Change state to WAIT to wait for next serve.
                 break;
         }
     }
+    return; //End of Main
+}
+
+//Configure pin directions and initial states.
+void configure_pins(void)
+{
+    ANSELA = 0x00;  //Disable analog input on port A.
+    ANSELB = 0x00;  //Disable analog input on port B.
+    ANSELC = 0x00;  //Disable analog input on port C.
+    ANSELD = 0x00;  //Disable analog input on port D.
+    ANSELE = 0x01;  //Disable analog input on port E except RE0.
+    TRISA  = 0x20;  //Set port A to Output except RA5.
+    TRISB  = 0x01;  //Set port B to Output except RB0.
+    TRISC  = 0x00;  //Set port C to Output.
+    TRISD  = 0x00;  //Set port D to Output.
+    TRISE  = 0x01;  //Set port E to Output except RE0.
+    LATA   = 0x00;  //Set port A to initial output LOW.
+    LATB   = 0x00;  //Set port B to initial output LOW.
+    LATC   = 0x00;  //Set port C to initial output LOW.
+    LATD   = 0x00;  //Set port D to initial output LOW.
+    LATE   = 0x00;  //Set port E to initial output LOW.
     return;
 }
 
-void set_ball(unsigned char position)
-{
-    LATD = ball = position;
-    return;
-}
-
-void shift_ball(unsigned int dir, unsigned int *scorer)
-{
-    unsigned char prior_value = ball;
-    unsigned char current_value;
-    unsigned char increment = 1;
-    if(dir == LEFT)
-        LATD = ball = (unsigned char) (prior_value << increment);
-    else if(dir == RIGHT)
-        LATD = ball = prior_value >> increment;
-    
-    current_value = ball;
-    if(current_value == 0)
-    {
-        if(prior_value == 0x80)
-            *scorer = RIGHT;
-        else if(prior_value == 0x01)  
-            *scorer = LEFT;
-    }
-    return;
-}
-
-//Set the delay between led changes in ms.
-void set_rand_speed(unsigned int *speed)
-{
-    if(rand() % 2 == 0)
-        *speed = BASE_SPEED + (rand() % (MAX_SPEED - MIN_SPEED + 1)) + MIN_SPEED;
-    else
-        *speed = BASE_SPEED - (rand() % (MAX_SPEED - MIN_SPEED + 1)) + MIN_SPEED;
-    return;
-}
-
-//Returns the status of the left button then resets it.
-unsigned int get_left_button(void)
-{
-    unsigned int button_status = PORTBbits.RB0;
-    if(button_status == 0)
-    {
-        __delay_ms(DEBOUNCE_DELAY);
-        if(button_status == 0)
-            return 1;
-    }
-    return 0;
-}
-
-
-unsigned int get_right_button(void)
-{
-    unsigned int button_status = PORTAbits.RA5;
-    if(button_status == 0)
-    {
-        __delay_ms(DEBOUNCE_DELAY);
-        if(button_status == 0)
-            return 1;
-    }
-    return 0;
-}
-
-
-void signal_foul(void)
-{
-    ; //Add commands here to light foul led for 500ms.
-    LATAbits.LATA2 = 1;
-    __delay_ms(1000);
-    LATAbits.LATA2 = 0;
-    
-    return;
-}
-
-
-void signal_score(unsigned int player)
-{
-    LATAbits.LATA0 = 0;
-    LATAbits.LATA1 = 0;
-    if(player == RIGHT)
-        LATAbits.LATA1 = 1;
-    else if(player == LEFT)
-        LATAbits.LATA0 = 1;
-    __delay_ms(500);
-    LATA = 0x00;
-    return;
-}
-
-
+//Configure program interrupts and hardware timer.
 void configure_interrupts(void)
 {
     RCONbits.IPEN       = 0;	//Disable interrupt priority levels
@@ -351,43 +289,107 @@ void configure_interrupts(void)
     return;
 }
 
-
-void configure_pins(void)
+//Sets the ball to a specific position on the court.
+void set_ball(unsigned char position)
 {
-    ANSELA = 0x00;  //Disable analog input on port A
-    ANSELB = 0x00;  //Disable analog input on port B
-    ANSELC = 0x00;  //Disable analog input on port C
-    ANSELD = 0x00;  //Disable analog input on port D
-    ANSELE = 0x01;  //Disable analog input on port E except RE0.
+    LATD = ball = position;   //Set the ball and turn on the correct LED.
+    return;
+}
+
+//Shifts the ball once in a direction, returns if an out-of-bounds score occurred.
+unsigned int shift_ball(unsigned int dir)
+{
+    unsigned char prior_position = ball;    //Position of ball prior to shift.
+    unsigned char current_position;         //Position of ball after shift.
+    unsigned int scorer = 0;                //Scorer ID if out-of-bounds score occurred.
     
-    TRISA  = 0x20;  //Set port A to Output except RA5.
-    TRISB  = 0x01;  //Set port B to Output except RB0.
-    TRISC  = 0x00;  //Set port C to Output.
-    TRISD  = 0x00;  //Set port D to Output.
-    TRISE  = 0x01;  //Set port E to Output except RE0.
+    if(dir == LEFT)                         //Check the direction to shift the ball
+        LATD = ball = (unsigned char) (prior_position << 1);    //Shift the ball left.
+    else if(dir == RIGHT)
+        LATD = ball = (unsigned char) (prior_position >> 1);    //Shift the ball right.
+    current_position = ball;                //Record the ball's shifted position.
     
-    LATA = 0x00;    //Set port A to initial output LOW.
-    LATB = 0x00;    //Set port B to initial output LOW.
-    LATC = 0x00;    //Set port C to initial output LOW.
-    LATD = 0x00;    //Set port D to initial output LOW.
-    LATE = 0x00;    //Set port E to initial output LOW.
+    if(current_position == 0)               //Check if the ball is outside the court.
+    {
+        if(prior_position == 0x80)  
+            scorer = RIGHT;                 //Reward point to right if left fouled.
+        else if(prior_position == 0x01)  
+            scorer = LEFT;                  //Reward point to left if right fouled.
+    }
+    return scorer;                          //Return the id of the scoring player, otherwise zero.
+}
+
+//Set a random delay between led changes in ms.
+unsigned int set_rand_speed()
+{
+    unsigned int speed;  
+    if(rand() % 2 == 0)
+        speed = BASE_SPEED + (rand() % (MAX_SPEED - MIN_SPEED + 1)) + MIN_SPEED;
+    else
+        speed = BASE_SPEED - (rand() % (MAX_SPEED - MIN_SPEED + 1)) + MIN_SPEED;
+    return speed;
+}
+
+//Returns the status of the left button.
+unsigned int get_left_button(void)
+{
+    if(PORTBbits.RB0 == 0)          //Check if left button was pressed.
+    {
+        __delay_ms(DEBOUNCE_DELAY); //Delay response to prevent debounce errors.
+        return 1;                   //Return 1 to signal button press.
+    }
+    return 0;                       //If not pressed, return zero.
+}
+
+//Returns the status of the right button.
+unsigned int get_right_button(void)
+{
+    if(PORTAbits.RA5 == 0)          //Check if right button was pressed.
+    {
+        __delay_ms(DEBOUNCE_DELAY); //Delay response to prevent debounce errors.
+        return 1;                   //Return 1 to signal button press.
+    }
+    return 0;                       //If not pressed, return zero.
+}
+
+//Flash the foul LED.
+void signal_foul(void)
+{
+    LATAbits.LATA2 = 1;     //Turn on the foul LED.
+    __delay_ms(1000);       //Delay 1 second.
+    LATAbits.LATA2 = 0;     //Turn off the foul LED.
+    return;
+}
+
+//Signal and record that a score occurred.
+void signal_score(unsigned int player)
+{
+    if(player == RIGHT)
+        LATAbits.LATA1 = 1;                 //Turn on the right LED if right player scored.
+    else if(player == LEFT)
+        LATAbits.LATA0 = 1;                 //Turn on the left LED if left player scored.
+    __delay_ms(500);                        //Delay 1/2 seconds.
+    LATAbits.LATA1 = LATAbits.LATA0 = 0x00; //Clear both player's LEDs.
     return;
 }
 
 
+
+//Increments the timer every millisecond.
 void __interrupt() isr(void)
 {
-   if(TMR0IE && TMR0IF) //if Timer0 is enabled and Timer0 has overflowed.
+   if(TMR0IE && TMR0IF) //Increment time if Timer0 is enabled and Timer0 has overflowed.
    {
-      TMR0IF = 0;               //Reset Timer0 overflow flag.
-      timer_tick++;             //Increment timer_tick.
-      TMR0L = 0xF0;             //Reset preload to 240.
+      TMR0IF = 0;       //Reset Timer0 overflow flag.
+      timer_tick++;     //Increment time.
+      TMR0L = 0xF0;     //Reset preload to 240.
    }
    return;
 }
 
+//Turn off all court LEDs.
 void clear_court(void)
 {
-    LATD = ball = 0x00;
+    LATD = ball = 0x00;     //Set all court LEDs to zero and reset ball position.
     return;
 }
