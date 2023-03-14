@@ -87,7 +87,6 @@
  RA0        Left Score LED
  RA1        Right Score LED
  RA2        Foul LED
- RE0        Analog seeder    (holding off for now)
  */
 
 //Program States
@@ -104,10 +103,9 @@ enum states
 //Constants
 #define LEFT           1    //Identifier for the left player.
 #define RIGHT          2    //Identifier for the right player.
-#define DEBOUNCE_DELAY 10   //Delay to prevent button bounce errors.
-#define BASE_SPEED     300  //Base speed of the ball movements.
-#define MIN_SPEED      50   //Minimum possible speed variation.
-#define MAX_SPEED      100  //Maximum possible speed variation.
+#define DEBOUNCE_DELAY 20   //Delay to prevent button bounce errors.
+#define MIN_SPEED      100   //Minimum possible speed variation.
+#define MAX_SPEED      500  //Maximum possible speed variation.
 
 //Function Prototypes
 unsigned int get_left_button (void);                    //Return the state of the left button.
@@ -129,14 +127,14 @@ unsigned int  cur_state          = INIT;    //Current state of the program.
 //Main Function
 void main()
 {
-    unsigned int direction;
-    unsigned int left_score  = 0;
-    unsigned int right_score = 0;
-    unsigned int scorer      = 0;
-    unsigned int speed       = BASE_SPEED;
+    unsigned int direction;         //Indicates the direction of ball movement.
+    unsigned int speed;             //Time between ball movements.
+    unsigned int left_score  = 0;   //Score for the left player.
+    unsigned int right_score = 0;   //Score for the right player.
+    unsigned int scorer      = 0;   //Indicates if someone has scored, and who.
     
-    configure_pins();
-    configure_interrupts();
+    configure_pins();        //Set all pins to initial configuration.
+    configure_interrupts();  //Configure the hardware timer.
 
     //Infinite while loop acts as operating system.
     while(1)
@@ -146,7 +144,6 @@ void main()
         {
             //State to reset game and configure variables.
             case INIT:
-                //srand(time(0));
                 left_score  = 0;        //Reset left's score.
                 right_score = 0;        //Reset right's score.
                 cur_state   = WAIT;     //Change state to WAIT to wait on serve.
@@ -172,7 +169,7 @@ void main()
             
             //State for waiting between ball movements.
             case TIMING:
-                if(timer_tick == speed)                 //Shift ball after specified delay.
+                if(timer_tick >= speed)                 //Shift ball after specified delay.
                 {
                     if(direction == LEFT)
                         cur_state = RIGHT_TO_LEFT;      //Change state to RIGHT_TO_LEFT if moving left.
@@ -192,7 +189,6 @@ void main()
                         {
                             direction = RIGHT;          //Ball now moves right after successful hit.
                             speed = set_rand_speed();   //Change the speed of the ball.
-                            
                         }
                     }
                     else if(get_right_button())         //Check for right button press.
@@ -260,7 +256,7 @@ void configure_pins(void)
     ANSELB = 0x00;  //Disable analog input on port B.
     ANSELC = 0x00;  //Disable analog input on port C.
     ANSELD = 0x00;  //Disable analog input on port D.
-    ANSELE = 0x01;  //Disable analog input on port E except RE0.
+    ANSELE = 0x00;  //Disable analog input on port E.
     TRISA  = 0x20;  //Set port A to Output except RA5.
     TRISB  = 0x01;  //Set port B to Output except RB0.
     TRISC  = 0x00;  //Set port C to Output.
@@ -322,12 +318,7 @@ unsigned int shift_ball(unsigned int dir)
 //Set a random delay between led changes in ms.
 unsigned int set_rand_speed()
 {
-    unsigned int speed;  
-    if(rand() % 2 == 0)
-        speed = BASE_SPEED + (rand() % (MAX_SPEED - MIN_SPEED + 1)) + MIN_SPEED;
-    else
-        speed = BASE_SPEED - (rand() % (MAX_SPEED - MIN_SPEED + 1)) + MIN_SPEED;
-    return speed;
+    return (rand() % (MAX_SPEED - MIN_SPEED + 1)) + MIN_SPEED;
 }
 
 //Returns the status of the left button.
@@ -372,8 +363,6 @@ void signal_score(unsigned int player)
     LATAbits.LATA1 = LATAbits.LATA0 = 0x00; //Clear both player's LEDs.
     return;
 }
-
-
 
 //Increments the timer every millisecond.
 void __interrupt() isr(void)
