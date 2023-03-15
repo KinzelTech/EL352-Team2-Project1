@@ -1,3 +1,14 @@
+/*
+ ============================================================================
+ File Name : 
+ Team Name :
+ Author(s) :
+ Date : All Sign Pledge: ______________ ______________ ______________ 
+ Inputs :
+ Outputs :
+ Description : <explain the program including limits of the program>
+ ============================================================================ */
+
 #include <xc.h>
 
 #define _XTAL_FREQ 8000000  // tells XC8 the crystal frequency
@@ -103,21 +114,25 @@ enum states
 //Constants
 #define LEFT           1    //Identifier for the left player.
 #define RIGHT          2    //Identifier for the right player.
-#define DEBOUNCE_DELAY 20   //Delay to prevent button bounce errors.
-#define MIN_SPEED      100   //Minimum possible speed variation.
+#define DEBOUNCE_DELAY 10   //Delay to prevent button bounce errors.
+#define MIN_SPEED      100  //Minimum possible speed variation.
 #define MAX_SPEED      500  //Maximum possible speed variation.
+#define FOUL_SPEED     450  //Any speed greater than this is considered a net foul.
 
 //Function Prototypes
+unsigned int set_rand_speed  (void);                    //Set a random ball speed.
 unsigned int get_left_button (void);                    //Return the state of the left button.
 unsigned int get_right_button(void);                    //Return the state of the right button.
 unsigned int shift_ball      (unsigned int dir);        //Shift the ball once in a direction.
-unsigned int set_rand_speed  (void);                    //Set a random ball speed.
+unsigned int check_net_foul  (unsigned int speed, 
+                              unsigned int direction);  //Check to see if a net foul occurred.
 void set_ball                (unsigned char position);  //Set the ball at a position on the court.
 void signal_foul             (void);                    //Flash the foul LED.
 void signal_score            (unsigned int player);     //Flash the appropriate score LED.
 void configure_interrupts    (void);                    //Configure timer interrupts.            
 void configure_pins          (void);                    //Configure pin directions and initial outputs.
 void clear_court             (void);                    //Turn off all court LEDs.
+
 
 //Global Variables
 volatile unsigned int timer_tick = 0;       //Increment every 1ms based upon Timer0.
@@ -169,7 +184,7 @@ void main()
             
             //State for waiting between ball movements.
             case TIMING:
-                if(timer_tick >= speed)                 //Shift ball after specified delay.
+                if(timer_tick > speed)                 //Shift ball after specified delay.
                 {
                     if(direction == LEFT)
                         cur_state = RIGHT_TO_LEFT;      //Change state to RIGHT_TO_LEFT if moving left.
@@ -189,6 +204,7 @@ void main()
                         {
                             direction = RIGHT;          //Ball now moves right after successful hit.
                             speed = set_rand_speed();   //Change the speed of the ball.
+                            timer_tick = 0;             //Reset timer to zero
                         }
                     }
                     else if(get_right_button())         //Check for right button press.
@@ -202,6 +218,7 @@ void main()
                         {
                             direction = LEFT;           //Ball now moves left after successful hit.
                             speed = set_rand_speed();   //Change the speed of the ball.
+                            timer_tick = 0;             //Reset timer to zero.
                         }
                     }
                 }
@@ -211,6 +228,8 @@ void main()
             case RIGHT_TO_LEFT:
                 timer_tick = 0;             //Reset the timer.
                 scorer = shift_ball(LEFT);  //Shift ball left, return scorer if out-of-bounds.
+                if(!scorer)
+                    scorer = check_net_foul(speed, direction);  //Check if net-foul occurred, return scorer.
                 if(scorer)                  
                     cur_state = SCORE;      //Change state to SCORE if a player scored.
                 else
@@ -221,6 +240,8 @@ void main()
             case LEFT_TO_RIGHT:
                 timer_tick = 0;             //Reset the timer.
                 scorer = shift_ball(RIGHT); //Shift ball right, return scorer if out-of-bounds.
+                if(!scorer)
+                    scorer = check_net_foul(speed, direction);  //Check if net-foul occurred, return scorer.
                 if(scorer)          
                     cur_state = SCORE;      //Change state to SCORE if player scored.
                 else
@@ -241,7 +262,7 @@ void main()
                     signal_score(LEFT);     //Flash left's score LED.   
                 }
                 scorer = 0;                 //Reset scorer to none.
-                clear_court();              //Turn off all court LEDs.
+                clear_court();              //Turn off all court LEDs.DIRE
                 cur_state = WAIT;           //Change state to WAIT to wait for next serve.
                 break;
         }
@@ -281,8 +302,7 @@ void configure_interrupts(void)
     INTCONbits.GIE      = 1;	//Enable interrupts.
     T0CONbits.TMR0ON    = 1;	//Turn on Timer0.
                                 //Calcs = 4*prescale(256-preload)/f
-                                //      = 4*128(256-240)/8M = 1.024ms
-    return;
+    return;                     //      = 4*128(256-240)/8M = 1.024ms
 }
 
 //Sets the ball to a specific position on the court.
@@ -381,4 +401,18 @@ void clear_court(void)
 {
     LATD = ball = 0x00;     //Set all court LEDs to zero and reset ball position.
     return;
+}
+
+//Check for net foul, return scorer if one occurred.
+unsigned int check_net_foul(unsigned int speed, unsigned int direction)
+{
+    unsigned int scorer = 0;          //Scorer id, zero if no foul occurs.
+    if(speed >= FOUL_SPEED && (ball == 0x08 || ball == 0x10))  //Check for net fouls.
+    {
+        if(direction == LEFT)         //Check if ball is coming from the left.
+            scorer = LEFT;            //Reward left the point for the net foul.
+        else if(direction == RIGHT)   //Check if ball is coming from the right.
+            scorer = RIGHT;           //Reward right the point for the net foul.                
+    }
+    return scorer;                    //Return scorer if net foul occurred, otherwise zero.
 }
