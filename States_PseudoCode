@@ -1,0 +1,145 @@
+enum states
+{
+    INIT,           //Resets variables for new game.
+    WAIT,           //Waits for player to serve the ball.
+    TIMING,         //Delay between ball movements.
+    RIGHT_TO_LEFT,  //Shifts the ball to the left. 
+    LEFT_TO_RIGHT,  //Shifts the ball to the right.
+    SCORE           //Signals and records scores and fouls.
+};
+
+//Constants
+#define LEFT           1    //Identifier for the left player.
+#define RIGHT          2    //Identifier for the right player.
+
+//Global Variables
+timer_tick = 0;       //Increment every 1ms based upon Timer0.
+ball       = 0x00;    //Current position of the ball.
+
+//Main Function
+void main()
+{
+    direction;           //Indicates the direction of ball movement.
+    speed;               //Time between ball movements.
+    left_score  = 0;     //Score for the left player.
+    right_score = 0;     //Score for the right player.
+    scorer      = 0;     //Indicates if someone has scored, and who.
+    cur_state   = INIT;  //Current state of the program.
+
+    //Infinite while loop acts as operating system.
+    while(1)
+    {
+        //Select the current state of program execution.
+        switch(cur_state)
+        {
+            //State to reset game and configure variables.
+            case INIT:
+                left_score  = 0;        //Reset left's score.
+                right_score = 0;        //Reset right's score.
+                cur_state   = WAIT;     //Change state to WAIT to wait on serve.
+                break;
+            
+            //State to wait for player to serve the ball.
+            case WAIT:
+                speed = rand_speed();   //Set the ball's speed.
+                if(left_button_pressed)     //Check if the left button was pressed.
+                {
+                    set_ball(0x80);         //Start ball on left-most edge.
+                    direction = RIGHT;      //Set ball to move to the right.
+                    cur_state = TIMING;     //Change to TIMING state to wait for next ball movement.
+                }
+                if(right_button_pressed)    //Check if the right button was pressed.
+                {
+                    set_ball(0x01);         //Start ball on right-most edge.
+                    direction = LEFT;       //Set ball to move to the left.
+                    cur_state = TIMING;     //Change to TIMING state to wait for next ball movement.
+                }
+                timer_tick = 0;             //Reset the timer.
+                break;
+            
+            //State for waiting between ball movements.
+            case TIMING:
+                if(timer_tick >= speed)                 //Shift ball after specified delay.
+                {
+                    if(direction == LEFT)
+                        cur_state = RIGHT_TO_LEFT;      //Change state to RIGHT_TO_LEFT if moving left.
+                    if(direction == RIGHT)
+                        cur_state = LEFT_TO_RIGHT;      //Change state to LEFT_TO_RIGHT if moving right.
+                }
+                else                                    //Check for button presses.
+                {
+                    if(left_button_pressed)               //Check for left button press.
+                    {
+                        if(ball == 0x80)                //Check if ball is on the left-most edge.
+                        {
+                            direction = RIGHT;          //Ball now moves right after successful hit.
+                            speed = rand_speed();       //Change the speed of the ball.
+                        }
+                        else                            //Ball is elsewhere on the court.
+                        {
+                            scorer    = RIGHT;          //Right gets point since left swung at invalid ball. 
+                            cur_state = SCORE;          //Change state to SCORE.
+                        }
+                        timer_tick = 0;                 //Reset timer to zero
+                    }
+                    else if(right_button_pressed)         //Check for right button press.
+                    {
+                        if(ball == 0x01)                //Check if ball is on the right-most edge.
+                        {
+                            direction = LEFT;           //Ball now moves left after successful hit.
+                            speed = rand_speed();       //Change the speed of the ball.
+                        }
+                        else                            //Ball is elsewhere on the court.
+                        {
+                            scorer    = LEFT;           //Left gets point since right swung at invalid ball.
+                            cur_state = SCORE;          //Change state to SCORE.
+                        }
+                        timer_tick = 0;                 //Reset timer to zero
+                    }
+                }
+                break;
+            
+            //State to move ball right-to-left.
+            case RIGHT_TO_LEFT:
+                timer_tick = 0;             //Reset the timer.
+		    ball = ball << 1;		  //Shift ball left.
+                if(ball == 0)		        //Check if ball is now out-of-bounds.
+                   scorer = RIGHT;   	  //Assign right the score if out-of-bounds.
+                if(scorer)			  //Check if someone scored.                  
+                    cur_state = SCORE;      //Change state to SCORE if a player scored.
+                else
+                    cur_state = TIMING;     //Change state to TIMING to wait for next ball movement.
+                break;
+            
+            //State to move ball left-to-right.
+            case LEFT_TO_RIGHT:
+                timer_tick = 0;             //Reset the timer.
+                ball = ball >> 1;		  //Shift ball right.
+                if(ball == 0)		        //Check if ball is now out-of-bounds.
+                   scorer = LEFT;   	  //Assign right the score if out-of-bounds.
+                if(scorer)          	  //Check if someone scored.
+                    cur_state = SCORE;      //Change state to SCORE if player scored.
+                else
+                    cur_state = TIMING;     //Change state to TIMING to wait for next ball movement.
+                break;
+            
+            //State to signal scores and fouls
+            case SCORE:
+                flash_foul_led();           //Flash foul LED.
+                if(scorer == RIGHT)         //Check if right was the scorer.
+                {
+                    right_score++;          //Increment right's score by 1.
+                    flash_right_led();    //Flash right's score LED.
+                }
+                else if(scorer == LEFT)     //Check if left was the scorer.
+                {
+                    left_score++;           //Increment left's score by 1.
+                    flash_left_led();       //Flash left's score LED.   
+                }
+                scorer = 0;                 //Reset scorer to none.
+                clear_court();              //Turn off all court LEDs.
+                cur_state = WAIT;           //Change state to WAIT to wait for next serve.
+                break;
+        }
+    }
+    return; //End of Main
